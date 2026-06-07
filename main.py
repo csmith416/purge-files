@@ -39,14 +39,14 @@ def parse_args():
 
     # root dir for program scan
     parser.add_argument(
-        "--dir",
+        "-d",
         required=True,
-    help="Target directory to scan"
+        help="Target directory to scan"
     )
 
     # Specify files / patterns to filter to
     parser.add_argument(
-        "--files",
+        "-files",
         nargs="+",
         required=False,
         help="List of file name filters (wildcards supported, e.g. *.csv or *test*)"
@@ -54,7 +54,7 @@ def parse_args():
 
     # Specify folders / patterns to include
     parser.add_argument(
-        "--include-folders",
+        "-folders-include",
         nargs="+",
         required=False,
         help="List of folder name filters (wildcards supported, e.g. del* or *archive*)"
@@ -62,7 +62,7 @@ def parse_args():
 
     # Specify folders / patterns to exclude
     parser.add_argument(
-        "--exclude-folders",
+        "-folders-exclude",
         nargs="+",
         required=False,
         help="Exclude folder patterns"
@@ -70,15 +70,15 @@ def parse_args():
 
     # Specify days for deletion (last file modified date)
     parser.add_argument(
-        "--days",
+        "-days",
         type=int,
         default=0,
         help="Delete files older than N days"
     )
 
-    # --r for recursive
+    # TODO -r for recursive
     parser.add_argument(
-        "--r",
+        "-r",
         action="store_true",
         help="Scan subdirectories recursively"
     )
@@ -130,12 +130,17 @@ def main():
 
     # Call passed arguments
     args = parse_args()
-    target_dir = Path(args.dir).resolve()
+    target_dir = Path(args.d).resolve()
+    files_patterns = args.files  or ["del_data"]
+    folders_exclude_patterns = args.folders_exclude or []
+    folders_include_patterns = args.folders_include or ["del_folder"]
+    days= args.days or 0
+    recursive = args.r or False
     
     # Get start time / current time / file age cutoff
     start_time = perf_counter()
     current_time = datetime.now()
-    cutoff = current_time - timedelta(days=args.days)
+    cutoff = current_time - timedelta(days=days)
 
     # Convert current time into log timestamps for file and filename
     run_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -150,25 +155,22 @@ def main():
 
     # Start logging
     with open(log_file, "w") as log:
-        # TODO FIX this gross logic
-        # Pass folder filter args as variables
-        folder_include = args.include_folders
-        folder_exclude = args.exclude_folders
 
+       # TODO FIX this gross logic
         # If filters for both include/exclude, log both
-        if folder_include and folder_exclude:
+        if folders_include_patterns and folders_exclude_patterns:
             message = (
-                f"Pattern(s) included: {folder_include}\n"
-                f"Pattern(s) excluded: {folder_exclude}\n"
+                f"Pattern(s) included: {folders_include_patterns}\n"
+                f"Pattern(s) excluded: {folders_exclude_patterns}\n"
             )
 
         # Else if just include log only that
-        elif folder_include:
-            message = f"pattern (s) included: {folder_include}\n"
+        elif folders_include_patterns:
+            message = f"pattern (s) included: {folders_include_patterns}\n"
 
         # Else if only exclude, log that
-        elif folder_exclude:
-            message = f"\t\tFolder(s) excluded (or pattern): {folder_exclude}\n"
+        elif folders_exclude_patterns:
+            message = f"\t\tFolder(s) excluded (or pattern): {folders_exclude_patterns}\n"
         
         # Else log none
         else:
@@ -179,9 +181,9 @@ def main():
             f"Run Details:\n"
             f"\tRun time: {run_time}\n"
             f"\tTarget directory: {target_dir}\n"
-            f"\tDeletion range: {args.days} days\n"
-            f"\tFolder filters:\n{message}\n"
-            f"\tFile filters: {args.files}\n"
+            f"\tDeletion range: {days} days\n"
+            f"\tFolder patterns applied:\n{message}"
+            f"\tFile patterns applied: {files_patterns}\n"
         )
 
         try:
@@ -190,17 +192,17 @@ def main():
                 return
 
             # Check if any values or patterns are both included as args or their patterns overlap
-            if args.include_folders and args.exclude_folders and any(
+            if folders_include_patterns and folders_include_patterns and any(
                 fnmatch.fnmatch(inc, exc) or fnmatch.fnmatch(exc, inc)
-                for inc in args.include_folders
-                for exc in args.exclude_folders
+                for inc in folders_include_patterns
+                for exc in folders_exclude_patterns
             ):
                 
                 # Catch any overlapping include / exclude folder arg patterns
                 log.write(
                     f"Error: Include and exclude patterns overlap.\n"
-                    f"Include: {args.include_folders}\n"
-                    f"Exclude: {args.exclude_folders}\n"
+                    f"Include: {folders_include_patterns}\n"
+                    f"Exclude: {folders_exclude_patterns}\n"
                 )
                 return
             
@@ -216,21 +218,21 @@ def main():
                 if path.is_dir()
                 and path != log_dir
                 and not any(fnmatch.fnmatch(path.name, pattern)
-                for pattern in args.exclude_folders)
+                for pattern in folders_exclude_patterns)
             ]
 
             # Filter source directories against target
-            target_dirs = sorted(filter_list(source_dirs, args.include_folders))
+            target_dirs = sorted(filter_list(source_dirs, folders_include_patterns))
 
             # TODO
             # If args are exclude folders filter target list
-            if args.exclude_folders:
+            if folders_exclude_patterns:
                 target_dirs = [
                     path for path in target_dirs
                     if (
                         path != log_dir
                         and not any(fnmatch.fnmatch(path.name, pattern)
-                        for pattern in args.exclude_folders)
+                        for pattern in folders_exclude_patterns)
                     ) 
                 ]
 
@@ -238,6 +240,8 @@ def main():
                 log.write("\nNo directories match the filter criteria provided")
                 return
             
+            print(target_dirs)
+
             for path in target_dirs:
                 dir_start = perf_counter()
 
@@ -247,7 +251,7 @@ def main():
                     if file.is_file()
                 ]
 
-                target_files = sorted(filter_list(source_files, args.files))
+                target_files = sorted(filter_list(source_files, files_patterns))
 
                 log.write(f"\nDirectory marked for deletion: {path}\n\n")
                                             
@@ -274,7 +278,7 @@ def main():
                         else:
                             total_skipped+= 1
                             count_skipped += 1
-                            log.write(f"\tFile skipped, newer than {args.days} days: {file}\n")
+                            log.write(f"\tFile skipped, newer than {days} days: {file}\n")
 
                     except Exception as e:
                         log.write(f"\tError removing {file}:\n")
