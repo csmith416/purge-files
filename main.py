@@ -30,18 +30,21 @@ from time import perf_counter
 import argparse, fnmatch, traceback
 
 ##############################
-## SCRIPT ARGUMENTS ##
+## ARGUMENTS ##
 ##############################
 
+# Define arguments passed from command line
 def parse_args():
     parser = argparse.ArgumentParser(description="Purge files by name and age")
 
+    # root dir for program scan
     parser.add_argument(
         "--dir",
         required=True,
     help="Target directory to scan"
     )
 
+    # Specify files / patterns to filter to
     parser.add_argument(
         "--files",
         nargs="+",
@@ -49,6 +52,7 @@ def parse_args():
         help="List of file name filters (wildcards supported, e.g. *.csv or *test*)"
     )
 
+    # Specify folders / patterns to include
     parser.add_argument(
         "--include-folders",
         nargs="+",
@@ -56,6 +60,7 @@ def parse_args():
         help="List of folder name filters (wildcards supported, e.g. del* or *archive*)"
     )
 
+    # Specify folders / patterns to exclude
     parser.add_argument(
         "--exclude-folders",
         nargs="+",
@@ -63,11 +68,19 @@ def parse_args():
         help="Exclude folder patterns"
     )
 
+    # Specify days for deletion (last file modified date)
     parser.add_argument(
         "--days",
         type=int,
         default=0,
         help="Delete files older than N days"
+    )
+
+    # --r for recursive
+    parser.add_argument(
+        "--r",
+        action="store_true",
+        help="Scan subdirectories recursively"
     )
 
     return parser.parse_args()
@@ -76,6 +89,8 @@ def parse_args():
 ## FUNCTIONS ##
 ##############################
 
+# Function to filter a list of source paths against a given target list
+# In this case, the arguments passed into the script
 def filter_list(source_list: list[Path], target_list: list[str] | None) -> list[Path]:
     """
         Filter a list of Path objects based on Unix-style wildcard patterns.
@@ -97,9 +112,11 @@ def filter_list(source_list: list[Path], target_list: list[str] | None) -> list[
                 pattern in 'target_list'
         """
 
+    # If no arguments given, return the source list
     if not target_list:
         return source_list
     
+    # If arguments, return filtered source list against target
     return [
         value for value in source_list
         if any(fnmatch.fnmatch(value.name, target) for target in target_list)
@@ -110,30 +127,66 @@ def filter_list(source_list: list[Path], target_list: list[str] | None) -> list[
 ##############################
 
 def main():
+
+    # Call passed arguments
     args = parse_args()
+    target_dir = Path(args.dir).resolve()
+    
+    # Get start time / current time / file age cutoff
     start_time = perf_counter()
     current_time = datetime.now()
+    cutoff = current_time - timedelta(days=args.days)
 
+    # Convert current time into log timestamps for file and filename
     run_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
     timestamp = current_time.strftime("%Y_%m_%d_%H_%M_%S")
 
-    source_dir = Path(args.dir).resolve()
-    log_dir = source_dir / "purge-files-logs"
+    # Set up logging 
+    log_dir = target_dir / "purge-files-logs"
     log_file = log_dir / f"purge-files_{timestamp}.log"
+
+    # Ensure log directory exists if not already as well as any parent directories if not created
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    # Start logging
     with open(log_file, "w") as log:
+        # TODO FIX this gross logic
+        # Pass folder filter args as variables
+        folder_include = args.include_folders
+        folder_exclude = args.exclude_folders
+
+        # If filters for both include/exclude, log both
+        if folder_include and folder_exclude:
+            message = (
+                f"Pattern(s) included: {folder_include}\n"
+                f"Pattern(s) excluded: {folder_exclude}\n"
+            )
+
+        # Else if just include log only that
+        elif folder_include:
+            message = f"pattern (s) included: {folder_include}\n"
+
+        # Else if only exclude, log that
+        elif folder_exclude:
+            message = f"\t\tFolder(s) excluded (or pattern): {folder_exclude}\n"
+        
+        # Else log none
+        else:
+            message = None
+
+        # Write run details to log
         log.write(
-            f"Run time: {run_time}\n"
-            f"Source directory: {source_dir}\n"
-            f"Deletion range: {args.days} days\n"
-            f"Folder filters: {args.include_folders}\n"
-            f"File filters: {args.files}\n"
+            f"Run Details:\n"
+            f"\tRun time: {run_time}\n"
+            f"\tTarget directory: {target_dir}\n"
+            f"\tDeletion range: {args.days} days\n"
+            f"\tFolder filters:\n{message}\n"
+            f"\tFile filters: {args.files}\n"
         )
 
         try:
-            if not source_dir.exists():
-                log.write(f"Error: Directory does not exist: {source_dir}")
+            if not target_dir.exists():
+                log.write(f"Error: Directory does not exist: {target_dir}")
                 return
 
             # Check if any values or patterns are both included as args or their patterns overlap
@@ -142,6 +195,8 @@ def main():
                 for inc in args.include_folders
                 for exc in args.exclude_folders
             ):
+                
+                # Catch any overlapping include / exclude folder arg patterns
                 log.write(
                     f"Error: Include and exclude patterns overlap.\n"
                     f"Include: {args.include_folders}\n"
@@ -149,26 +204,34 @@ def main():
                 )
                 return
             
-            source_dirs = [
-                path for path
-                in source_dir.iterdir()
-                if path.is_dir()
-            ]
-
-            cutoff = current_time - timedelta(days=args.days)
-
+            # Total skipped / delete count for logs
             total_skipped = 0
             total_deleted = 0
+            
+            # List the paths in the source items that are directories,
+            # are not the log directory, and dont contain an exclude pattern
+            source_dirs = [
+                path for path
+                in target_dir.iterdir()
+                if path.is_dir()
+                and path != log_dir
+                and not any(fnmatch.fnmatch(path.name, pattern)
+                for pattern in args.exclude_folders)
+            ]
 
-            print(source_dirs)
-
+            # Filter source directories against target
             target_dirs = sorted(filter_list(source_dirs, args.include_folders))
 
+            # TODO
+            # If args are exclude folders filter target list
             if args.exclude_folders:
                 target_dirs = [
-                    path for path
-                    in target_dirs if not any(fnmatch.fnmatch(path.name, pattern)
-                    for pattern in args.exclude_folders) 
+                    path for path in target_dirs
+                    if (
+                        path != log_dir
+                        and not any(fnmatch.fnmatch(path.name, pattern)
+                        for pattern in args.exclude_folders)
+                    ) 
                 ]
 
             if not target_dirs:

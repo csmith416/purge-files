@@ -5,7 +5,6 @@ import shutil
 ## GLOBALS ##
 ##############################
 
-
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
 FILES = ["del_data"]
@@ -17,7 +16,9 @@ FILES_OUT = 5
 ##############################
 
 def filter_list(source_list: list[Path], target_list: list[str]) -> list[Path]:
-
+    """
+    
+    """
     filtered = [
         value for value in source_list
         if any(target in value.name for target in target_list)
