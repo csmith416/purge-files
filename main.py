@@ -131,9 +131,9 @@ def main():
     # Call passed arguments
     args = parse_args()
     target_dir = Path(args.d).resolve()
-    files_patterns = args.files  or ["del_data"]
+    files_patterns = args.files  or []
     folders_exclude_patterns = args.folders_exclude or []
-    folders_include_patterns = args.folders_include or ["del_folder"]
+    folders_include_patterns = args.folders_include or []
     days= args.days or 0
     recursive = args.r or False
     
@@ -160,8 +160,8 @@ def main():
         # If filters for both include/exclude, log both
         if folders_include_patterns and folders_exclude_patterns:
             message = (
-                f"Pattern(s) included: {folders_include_patterns}\n"
-                f"Pattern(s) excluded: {folders_exclude_patterns}\n"
+                f"\t\tPattern(s) included: {folders_include_patterns}\n"
+                f"\t\tPattern(s) excluded: {folders_exclude_patterns}\n"
             )
 
         # Else if just include log only that
